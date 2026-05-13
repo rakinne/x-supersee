@@ -201,6 +201,13 @@ async def cases_queue(request: Request, all: int = 0, q: str | None = None) -> H
                 FROM cases c
                 {where}
                 ORDER BY
+                    CASE status
+                        WHEN 'escalated'    THEN 0
+                        WHEN 'pending_hitl' THEN 1
+                        WHEN 'in_progress'  THEN 2
+                        WHEN 'pending'      THEN 3
+                        ELSE                     4
+                    END,
                     CASE risk_band WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
                     created_at DESC
                 LIMIT 200
