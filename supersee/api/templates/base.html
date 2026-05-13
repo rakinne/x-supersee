@@ -1,0 +1,463 @@
+{# Supersee analyst UI base layout. Aesthetic: Gotham II (chosen via
+   /design-shotgun on 2026-05-13, variant H by codex). Dark navy
+   intelligence-analyst tool — Palantir / Recorded Future / Mandiant
+   reference range. Single-file CSS, no external resources. #}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Supersee{% endblock %}</title>
+<style>
+:root {
+  --bg: #0b0f17;
+  --pane: #131822;
+  --pane-2: #10151e;
+  --pane-3: #0d121b;
+  --line: #1d2330;
+  --line-soft: #171d28;
+  --text: #e8ebf0;
+  --muted: #8a92a4;
+  --tertiary: #555c6c;
+  --accent: #4ea4ff;
+  --high: #c84444;
+  --medium: #b48230;
+  --low: #5c6b80;
+  --teal: #4a9080;
+  --red-bg: rgba(200, 68, 68, .14);
+  --red-soft: rgba(200, 68, 68, .08);
+  --amber-soft: rgba(180, 130, 48, .08);
+  --slate-soft: rgba(92, 107, 128, .12);
+  --blue-bg: rgba(78, 164, 255, .08);
+  --blue-bg-strong: rgba(78, 164, 255, .14);
+  --font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+* { box-sizing: border-box; }
+html, body {
+  height: 100%; margin: 0;
+  background: var(--bg); color: var(--text);
+  font-family: var(--font); font-size: 12px; line-height: 1.25;
+}
+button, input, textarea, select { font: inherit; color: inherit; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* --- App shell --- */
+.app {
+  height: 100vh;
+  min-width: 1160px;
+  display: grid;
+  grid-template-rows: 42px 1fr 24px;
+  background: var(--bg);
+}
+
+/* --- Topbar --- */
+.topbar {
+  display: grid;
+  grid-template-columns: 224px 1fr auto;
+  align-items: stretch;
+  border-bottom: 1px solid var(--line);
+  background: var(--pane-3);
+}
+.brand {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 14px;
+  border-right: 1px solid var(--line);
+  letter-spacing: .04em; text-transform: uppercase;
+  text-decoration: none; color: var(--text);
+}
+.brand:hover { text-decoration: none; }
+.brand-mark {
+  width: 15px; height: 15px;
+  border: 1px solid var(--accent);
+  position: relative;
+}
+.brand-mark:before, .brand-mark:after {
+  content: ""; position: absolute; background: var(--accent);
+}
+.brand-mark:before { width: 1px; height: 13px; left: 6px; top: 0; opacity: .75; }
+.brand-mark:after { width: 13px; height: 1px; left: 0; top: 6px; opacity: .75; }
+.brand-name { font-weight: 700; font-size: 12px; }
+
+.top-state {
+  display: flex; align-items: center; gap: 18px;
+  padding: 0 14px;
+  color: var(--muted);
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+.state-cell { display: flex; align-items: center; gap: 6px; }
+.state-label {
+  color: var(--tertiary); text-transform: uppercase;
+  font-size: 10px; letter-spacing: .05em;
+}
+.state-value { color: var(--text); font-variant-numeric: tabular-nums; }
+.state-value.hot { color: var(--accent); }
+.conn { color: var(--teal); }
+.conn:before { content: "●"; font-size: 8px; margin-right: 6px; }
+
+.top-actions { display: flex; align-items: center; border-left: 1px solid var(--line); }
+.top-actions a, .top-actions button {
+  width: 38px; height: 41px;
+  border: 0; border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 12px;
+}
+.top-actions a.active, .top-actions button.active {
+  color: var(--accent); background: var(--blue-bg);
+}
+.top-actions a:hover { text-decoration: none; color: var(--text); }
+
+/* --- Shell (sidebar + main) --- */
+.shell {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 224px 1fr;
+}
+
+.sidebar {
+  background: var(--pane);
+  border-right: 1px solid var(--line);
+  min-height: 0; overflow: hidden;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+.side-head { padding: 12px 14px 10px; border-bottom: 1px solid var(--line); }
+.side-title {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted); margin-bottom: 7px;
+}
+.search {
+  height: 26px; display: flex; align-items: center;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  background: #0c1119;
+  color: var(--tertiary); font-family: var(--mono);
+}
+.search input {
+  background: transparent; border: 0; outline: 0;
+  width: 100%; padding: 0; color: var(--text);
+}
+.search input::placeholder { color: var(--tertiary); }
+
+.filter-body { overflow: auto; padding: 8px 0 14px; }
+.filter-group {
+  border-bottom: 1px solid var(--line-soft);
+  padding: 10px 14px 12px;
+}
+.group-title {
+  display: flex; justify-content: space-between;
+  color: var(--tertiary); text-transform: uppercase;
+  letter-spacing: .07em; font-size: 10px; margin-bottom: 8px;
+}
+.filter-row {
+  height: 24px;
+  display: grid; grid-template-columns: 16px 1fr auto;
+  align-items: center; gap: 7px;
+  color: var(--muted);
+  text-decoration: none;
+  cursor: pointer;
+}
+.filter-row:hover { color: var(--text); text-decoration: none; }
+.box {
+  width: 12px; height: 12px;
+  border: 1px solid #303746;
+  background: #0c1119;
+  position: relative;
+}
+.box.checked { border-color: var(--accent); background: var(--blue-bg-strong); }
+.box.checked:after {
+  content: ""; position: absolute;
+  left: 3px; top: 1px; width: 4px; height: 7px;
+  border-right: 1px solid var(--accent);
+  border-bottom: 1px solid var(--accent);
+  transform: rotate(42deg);
+}
+.count {
+  font-family: var(--mono); color: var(--tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.side-foot {
+  border-top: 1px solid var(--line);
+  padding: 10px 14px;
+  color: var(--tertiary); font-family: var(--mono);
+}
+.mini-metric {
+  display: grid; grid-template-columns: 1fr auto;
+  height: 20px; align-items: center;
+}
+.mini-metric .v { color: var(--muted); }
+
+/* --- Main pane --- */
+.main {
+  min-width: 0; min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.queuebar {
+  height: 38px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--pane-2);
+  flex-shrink: 0;
+}
+.queue-title { display: flex; align-items: baseline; gap: 12px; }
+.queue-title h1 {
+  margin: 0; font-size: 13px; font-weight: 650; letter-spacing: .02em;
+}
+.scope { color: var(--tertiary); font-family: var(--mono); }
+.tabs { display: flex; height: 38px; align-items: stretch; }
+.tab {
+  display: flex; align-items: center;
+  padding: 0 12px;
+  border-left: 1px solid var(--line);
+  color: var(--muted); font-family: var(--mono);
+  text-decoration: none;
+}
+.tab.active {
+  color: var(--accent);
+  box-shadow: inset 0 -1px 0 var(--accent);
+  background: rgba(78, 164, 255, .045);
+}
+.tab:hover { color: var(--text); text-decoration: none; }
+
+.main-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* --- Table primitives --- */
+table {
+  width: 100%; border-collapse: collapse;
+  table-layout: fixed; font-size: 12px;
+}
+thead th {
+  height: 28px; padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--tertiary); font-size: 10px; font-weight: 600;
+  text-align: left; letter-spacing: .06em; text-transform: uppercase;
+  background: #0f141d;
+  position: sticky; top: 0; z-index: 1;
+}
+thead th.num { text-align: right; }
+tbody td {
+  height: 31px; padding: 0 10px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+tbody tr { background: var(--bg); }
+tbody tr:nth-child(even) { background: #0c1119; }
+tbody tr.selected, tbody tr.row-link.selected {
+  background: rgba(78, 164, 255, .075);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+tbody tr:hover { background: #101722; }
+tbody tr.row-link { cursor: pointer; }
+
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.tx { color: var(--text); }
+.addr { color: #aab1bf; }
+.num {
+  text-align: right; font-family: var(--mono);
+  font-variant-numeric: tabular-nums; color: var(--text);
+}
+.center { text-align: center; }
+.dim { color: var(--tertiary); }
+
+/* --- Risk band tags --- */
+.risk {
+  display: inline-flex; align-items: center;
+  height: 18px; padding: 0 6px;
+  border: 1px solid transparent;
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: .04em; text-transform: uppercase;
+}
+.risk.high {
+  color: #e0a0a0;
+  border-color: rgba(200, 68, 68, .32);
+  background: var(--red-soft);
+}
+.risk.med {
+  color: #d3b17e;
+  border-color: rgba(180, 130, 48, .32);
+  background: var(--amber-soft);
+}
+.risk.low {
+  color: #9ba7b8;
+  border-color: rgba(92, 107, 128, .35);
+  background: var(--slate-soft);
+}
+
+/* --- Status pills --- */
+.status {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 18px;
+  font-family: var(--mono); font-size: 10px;
+}
+.status:before {
+  content: ""; width: 6px; height: 6px;
+  background: var(--tertiary);
+}
+.status.pending:before { background: #637085; }
+.status.pending_hitl:before { background: #637085; }
+.status.in_progress:before { background: var(--accent); }
+.status.escalated { color: #d69a9a; }
+.status.escalated:before {
+  background: var(--high); animation: pulse 1.8s infinite;
+}
+.status.approved { color: #87c2b6; }
+.status.approved:before { background: var(--teal); }
+.status.rejected { color: var(--tertiary); }
+.status.rejected:before { background: var(--tertiary); }
+.status.auto_closed { color: var(--tertiary); }
+.status.auto_closed:before { background: var(--tertiary); }
+.status.errored {
+  color: #e0a0a0; padding: 0 6px;
+  background: var(--red-bg);
+  border: 1px solid rgba(200, 68, 68, .28);
+}
+.status.errored:before { background: var(--high); }
+
+@keyframes pulse {
+  0% { opacity: .45; box-shadow: 0 0 0 0 rgba(200, 68, 68, .26); }
+  60% { opacity: 1; box-shadow: 0 0 0 4px rgba(200, 68, 68, 0); }
+  100% { opacity: .45; box-shadow: 0 0 0 0 rgba(200, 68, 68, 0); }
+}
+
+/* --- Bottom status bar --- */
+.bottom {
+  height: 24px;
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 10px;
+  border-top: 1px solid var(--line);
+  background: #090d14;
+  color: var(--tertiary);
+  font-family: var(--mono); font-size: 11px;
+  white-space: nowrap;
+}
+.bottom .live { color: var(--teal); }
+.bottom .accent { color: var(--accent); }
+.bottom .spacer { flex: 1; }
+
+/* --- Empty state --- */
+.empty {
+  padding: 80px 24px;
+  text-align: center;
+  color: var(--tertiary);
+}
+.empty h2 {
+  margin: 0 0 6px 0; color: var(--muted);
+  font-size: 13px; font-weight: 600;
+  letter-spacing: .02em;
+}
+
+{% block extra_css %}{% endblock %}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <a class="brand" href="/cases">
+      <div class="brand-mark"></div>
+      <div class="brand-name">Supersee</div>
+    </a>
+    <div class="top-state">
+      <div class="state-cell">
+        <span class="state-label">Queue</span>
+        <span class="state-value hot">{{ nav.pending_count }} pending</span>
+      </div>
+      <div class="state-cell">
+        <span class="state-label">High</span>
+        <span class="state-value">{{ nav.high_count }}</span>
+      </div>
+      <div class="state-cell">
+        <span class="state-label">Escalated</span>
+        <span class="state-value">{{ nav.escalated_count }}</span>
+      </div>
+      <div class="state-cell">
+        <span class="state-label">Ledger</span>
+        <span class="state-value">{{ nav.ledger_index or '—' }}</span>
+      </div>
+      <div class="state-cell conn">{{ nav.connection or 'xrpl ws connected' }}</div>
+    </div>
+    <div class="top-actions">
+      <a href="/cases" class="{% if active_page == 'queue' %}active{% endif %}" title="Cases">⌘</a>
+      <a href="/cases?all=1" title="All cases">⌕</a>
+      <a href="/healthz" title="Health" target="_blank">⚙</a>
+    </div>
+  </header>
+
+  <div class="shell">
+    <aside class="sidebar">
+      {% block sidebar %}
+      <div class="side-head">
+        <div class="side-title">Investigation Filters</div>
+        <form class="search" method="get" action="/cases">
+          <input name="q" value="{{ filters.q or '' }}" placeholder="query tx / account / rule">
+        </form>
+      </div>
+
+      <div class="filter-body">
+        <section class="filter-group">
+          <div class="group-title">
+            <span>Status</span>
+            <span>{{ filters.status_total or '' }}</span>
+          </div>
+          {% for f in filters.status_options or [] %}
+          <a class="filter-row" href="{{ f.href }}">
+            <span class="box {% if f.checked %}checked{% endif %}"></span>
+            <span>{{ f.label }}</span>
+            <span class="count">{{ f.count }}</span>
+          </a>
+          {% endfor %}
+        </section>
+
+        <section class="filter-group">
+          <div class="group-title">
+            <span>Risk Band</span>
+            <span>{{ filters.band_total or '' }}</span>
+          </div>
+          {% for f in filters.band_options or [] %}
+          <a class="filter-row" href="{{ f.href }}">
+            <span class="box {% if f.checked %}checked{% endif %}"></span>
+            <span>{{ f.label }}</span>
+            <span class="count">{{ f.count }}</span>
+          </a>
+          {% endfor %}
+        </section>
+      </div>
+
+      <div class="side-foot">
+        <div class="mini-metric"><span>analyst</span> <span class="v">{{ nav.analyst or 'anonymous' }}</span></div>
+        <div class="mini-metric"><span>policy</span> <span class="v">aml-v1</span></div>
+        <div class="mini-metric"><span>mode</span> <span class="v">{% if nav.mock_llm %}hitl/mock{% else %}hitl{% endif %}</span></div>
+      </div>
+      {% endblock %}
+    </aside>
+
+    <main class="main">
+      {% block main %}{% endblock %}
+    </main>
+  </div>
+
+  <footer class="bottom">
+    <span class="live">● {{ nav.xrpl_host or 'xrplcluster.com' }}</span>
+    <span>ofac: <span class="accent">{{ nav.ofac_count or 0 }} sdn</span></span>
+    <span>cases: <span class="accent">{{ nav.total_cases or 0 }}</span></span>
+    <span class="spacer"></span>
+    <span>supersee {{ nav.version or '0.1.0' }}</span>
+  </footer>
+</div>
+</body>
+</html>

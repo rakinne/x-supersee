@@ -1,13 +1,13 @@
 """FastAPI application entrypoint.
 
-The full implementation wires the `lifespan` hook to open the Postgres pool,
-apply pending migrations, compile the LangGraph app against an
-`AsyncPostgresSaver`, and launch the four background tasks (ingestor, scorer,
-langgraph_app, scheduler) under a `run_with_restart` supervisor.
+The lifespan opens the Postgres pool, applies pending migrations,
+compiles the LangGraph investigation app against the shared
+AsyncPostgresSaver, and launches the background scheduler. The case
+routes (`/cases`, `/cases/{id}`, `/cases/{id}/decision`) live in
+`supersee.api.routes`.
 
-This stub exposes only `/healthz` so the Dockerfile's HEALTHCHECK passes and
-`docker compose up` reports the container as healthy while the rest of the
-package is scaffolded.
+The future ingestor + per-task restart supervisor (eng-review hardening)
+will plug into this lifespan once they land.
 """
 
 from __future__ import annotations
@@ -16,14 +16,22 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
+from fastapi.templating import Jinja2Templates
 
 from supersee import __version__, db, scheduler
 from supersee.config import settings
 from supersee.graph import app as graph_app
 
 logger = logging.getLogger(__name__)
+
+# Templates directory lives alongside this package so the import works in
+# both the bind-mounted dev container and a frozen production image.
+TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
 def _configure_logging() -> None:
@@ -73,6 +81,18 @@ app = FastAPI(title="Supersee", version=__version__, lifespan=lifespan)
 
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
-    # TODO: gate on actual liveness of the four background tasks once they
-    # exist. For now, container-up == healthy.
+    # TODO: gate on actual liveness of the background tasks once they exist.
     return {"status": "ok", "version": __version__}
+
+
+@app.get("/", include_in_schema=False)
+async def root() -> RedirectResponse:
+    """Redirect the bare host to the case queue — the only meaningful UI."""
+    return RedirectResponse(url="/cases", status_code=303)
+
+
+# Route registration. Done after `app` exists so route modules can
+# import `app` if they want — but for clarity, routes.py uses a Router.
+from supersee.api import routes  # noqa: E402
+
+app.include_router(routes.router)

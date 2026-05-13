@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Cases · Supersee{% endblock %}
+
+{% block main %}
+<div class="queuebar">
+  <div class="queue-title">
+    <h1>XRPL Flagged Transaction Queue</h1>
+    <span class="scope">supersee / aml / {% if show_all %}all{% else %}open{% endif %}</span>
+  </div>
+  <nav class="tabs">
+    <a class="tab {% if not show_all %}active{% endif %}" href="/cases">queue</a>
+    <a class="tab {% if show_all %}active{% endif %}" href="/cases?all=1">audit</a>
+  </nav>
+</div>
+
+<div class="main-body">
+{% if cases %}
+<table>
+  <colgroup>
+    <col style="width: 94px">
+    <col style="width: 320px">
+    <col style="width: 128px">
+    <col style="width: 72px">
+    <col style="width: 120px">
+    <col style="width: 56px">
+    <col style="width: 60px">
+    <col>
+  </colgroup>
+  <thead>
+    <tr>
+      <th>TX</th>
+      <th>Route</th>
+      <th class="num">Amount</th>
+      <th>Risk</th>
+      <th>Status</th>
+      <th>Age</th>
+      <th class="num">Hits</th>
+      <th class="num">Decision</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for c in cases %}
+    <tr class="row-link" onclick="window.location='/cases/{{ c.id }}'">
+      <td class="mono tx">{{ c.id_short }}</td>
+      <td class="mono addr">{{ c.route }}</td>
+      <td class="num">{{ c.amount_display }}</td>
+      <td><span class="risk {{ c.band_class }}">{{ c.risk_band|upper }}</span></td>
+      <td><span class="status {{ c.status }}">{{ c.status }}</span></td>
+      <td class="mono dim">{{ c.age }}</td>
+      <td class="num">{{ c.rule_hits_count }}</td>
+      <td class="num"><a href="/cases/{{ c.id }}" class="dim">open ↗</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">
+  <h2>No cases in the queue</h2>
+  <p>
+    The scorer hasn't produced any investigations yet. Drive a fixture through the
+    pipeline with <code class="mono dim">supersee investigate fixtures/sanctioned-payment.json</code>
+    and refresh this page.
+  </p>
+</div>
+{% endif %}
+</div>
+{% endblock %}
