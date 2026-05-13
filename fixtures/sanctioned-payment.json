@@ -1,0 +1,17 @@
+{
+  "_description": "A 75k XRP payment from an otherwise-clean source to an OFAC SDN-listed destination, with a memo that namechecks Tornado Cash. Designed to fire large_payment + new_counterparty + memo_anomaly + ofac_sdn_match for a clean high-band demo: 0.20 + 0.10 + 0.10 + 0.50 = 0.90, band='high'.",
+  "event": {
+    "amount_xrp": 75000.0,
+    "account_src": "rDemoSrc1xxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "account_dst": "rDemoOFACDst1xxxxxxxxxxxxxxxxxxxxxx",
+    "memo_decoded": "deposit via tornado cash"
+  },
+  "context": {
+    "rolling_p99_7d": null,
+    "known_counterparties": [],
+    "recent_outbound_count": 0,
+    "ofac_addresses": ["rDemoOFACDst1xxxxxxxxxxxxxxxxxxxxxx"],
+    "watchlist_addresses": [],
+    "mixer_addresses": []
+  }
+}
