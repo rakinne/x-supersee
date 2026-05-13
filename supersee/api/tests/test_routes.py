@@ -11,17 +11,17 @@ import json as _json
 import os
 import uuid
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from supersee import clock, db
+from supersee import db
 from supersee.config.scorer import ScorerSettings
 from supersee.graph import app as graph_app
-from supersee.graph.narrative import MockNarrativeClient, StaticNarrativeClient, Narrative, NarrativeEvidenceItem
+from supersee.graph.narrative import (
+    MockNarrativeClient,
+)
 from supersee.scorer.score_event import EventData, ScoringContext, score_event
-
 
 _DSN = os.environ.get("DATABASE_URL", "")
 _IS_FAKE_DSN = "fake" in _DSN or _DSN == "postgresql://test@localhost/test"
@@ -51,19 +51,18 @@ async def stack() -> AsyncIterator[None]:
 @pytest.fixture(autouse=True)
 async def clean_db(stack) -> AsyncIterator[None]:
     pool = db.get_pool()
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 TRUNCATE events, account_history, cases, case_artifacts,
                          ofac_sdn_crypto, watchlist, mixer_addresses,
                          exchange_labels, ingestor_cursor, enrichment_cache,
                          rate_limits
                 RESTART IDENTITY CASCADE
                 """
-            )
-            # Wipe checkpointer too so each test sees clean graph state
-            await cur.execute("TRUNCATE checkpoints, checkpoint_writes, checkpoint_blobs")
+        )
+        # Wipe checkpointer too so each test sees clean graph state
+        await cur.execute("TRUNCATE checkpoints, checkpoint_writes, checkpoint_blobs")
     yield
 
 
@@ -90,24 +89,23 @@ async def _seed_paused_case(*, source_dst_ofac: bool = True) -> str:
     dst = f"rDst{uuid.uuid4().hex[:8]}"
     amount = 75_000.0
 
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            if source_dst_ofac:
-                await cur.execute(
-                    "INSERT INTO ofac_sdn_crypto (address, asset, sdn_uid, source_url, fetched_at) "
-                    "VALUES (%s, 'XRP', 'test-seed', 'test://', NOW()) ON CONFLICT DO NOTHING",
-                    (dst,),
-                )
+    async with pool.connection() as conn, conn.cursor() as cur:
+        if source_dst_ofac:
             await cur.execute(
-                """
+                "INSERT INTO ofac_sdn_crypto (address, asset, sdn_uid, source_url, fetched_at) "
+                "VALUES (%s, 'XRP', 'test-seed', 'test://', NOW()) ON CONFLICT DO NOTHING",
+                (dst,),
+            )
+        await cur.execute(
+            """
                 INSERT INTO events (tx_hash, ledger_index, validated_at, tx_type,
                                     account_src, account_dst, amount_xrp, raw_json)
                 VALUES (%s, 1, NOW(), 'Payment', %s, %s, %s, '{}'::jsonb)
                 RETURNING id
                 """,
-                (uuid.uuid4().hex, src, dst, amount),
-            )
-            event_id = (await cur.fetchone())[0]
+            (uuid.uuid4().hex, src, dst, amount),
+        )
+        event_id = (await cur.fetchone())[0]
 
     event = EventData(amount_xrp=amount, account_src=src, account_dst=dst, memo_decoded=None)
     ctx = ScoringContext(
@@ -141,23 +139,22 @@ async def _insert_approved_case() -> str:
     """Insert a case in 'approved' status with no graph state — for terminal-banner tests."""
     pool = db.get_pool()
     case_id = str(uuid.uuid4())
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 INSERT INTO events (tx_hash, ledger_index, validated_at, tx_type,
                                     account_src, account_dst, amount_xrp, raw_json)
                 VALUES (%s, 1, NOW(), 'Payment', 'rA', 'rB', 100, '{}'::jsonb)
                 RETURNING id
                 """,
-                (uuid.uuid4().hex,),
-            )
-            event_id = (await cur.fetchone())[0]
-            await cur.execute(
-                "INSERT INTO cases (id, event_id, status, risk_score, risk_band, rule_hits) "
-                "VALUES (%s, %s, 'approved', 0.3, 'medium', '[]'::jsonb)",
-                (case_id, event_id),
-            )
+            (uuid.uuid4().hex,),
+        )
+        event_id = (await cur.fetchone())[0]
+        await cur.execute(
+            "INSERT INTO cases (id, event_id, status, risk_score, risk_band, rule_hits) "
+            "VALUES (%s, %s, 'approved', 0.3, 'medium', '[]'::jsonb)",
+            (case_id, event_id),
+        )
     return case_id
 
 
@@ -247,10 +244,9 @@ class TestDecisionRoute:
 
         # Verify status flipped to approved
         pool = db.get_pool()
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT status FROM cases WHERE id = %s", (case_id,))
-                row = await cur.fetchone()
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute("SELECT status FROM cases WHERE id = %s", (case_id,))
+            row = await cur.fetchone()
         assert row[0] == "approved"
 
     async def test_reject_sets_status_rejected(self, client: AsyncClient) -> None:
@@ -262,10 +258,9 @@ class TestDecisionRoute:
         )
         assert r.status_code == 303
         pool = db.get_pool()
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT status FROM cases WHERE id = %s", (case_id,))
-                assert (await cur.fetchone())[0] == "rejected"
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute("SELECT status FROM cases WHERE id = %s", (case_id,))
+            assert (await cur.fetchone())[0] == "rejected"
 
     async def test_stale_resume_redirects_with_flash(self, client: AsyncClient) -> None:
         """A second decision POST after approval should redirect with a flash, not crash."""

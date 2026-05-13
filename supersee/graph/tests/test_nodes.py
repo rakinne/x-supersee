@@ -10,13 +10,13 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 from psycopg_pool import AsyncConnectionPool
 from pydantic import ValidationError
 
-from supersee import clock, db
+from supersee import db
 from supersee.graph.narrative import (
     FailingNarrativeClient,
     Narrative,
@@ -30,7 +30,6 @@ from supersee.graph.nodes import (
     record_outcome,
     triage_branch,
 )
-
 
 _DSN = os.environ.get("DATABASE_URL", "")
 _IS_FAKE_DSN = "fake" in _DSN or _DSN == "postgresql://test@localhost/test"
@@ -52,17 +51,16 @@ async def pool() -> AsyncIterator[AsyncConnectionPool]:
 
 @pytest.fixture(autouse=True)
 async def clean_db(pool: AsyncConnectionPool) -> AsyncIterator[None]:
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 TRUNCATE events, account_history, cases, case_artifacts,
                          ofac_sdn_crypto, watchlist, mixer_addresses,
                          exchange_labels, ingestor_cursor, enrichment_cache,
                          rate_limits
                 RESTART IDENTITY CASCADE
                 """
-            )
+        )
     yield
 
 
@@ -74,24 +72,23 @@ async def _insert_event(
     validated_at: datetime,
     tx_type: str = "Payment",
 ) -> None:
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 INSERT INTO events (tx_hash, ledger_index, validated_at, tx_type,
                                     account_src, account_dst, amount_xrp, raw_json)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, '{}'::jsonb)
                 """,
-                (
-                    uuid.uuid4().hex,
-                    1,
-                    validated_at,
-                    tx_type,
-                    account_src,
-                    account_dst,
-                    amount_xrp,
-                ),
-            )
+            (
+                uuid.uuid4().hex,
+                1,
+                validated_at,
+                tx_type,
+                account_src,
+                account_dst,
+                amount_xrp,
+            ),
+        )
 
 
 async def _insert_case(
@@ -101,15 +98,14 @@ async def _insert_case(
     risk_band: str = "medium",
     status: str = "pending",
 ) -> None:
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 INSERT INTO cases (id, event_id, status, risk_score, risk_band, rule_hits)
                 VALUES (%s, %s, %s, 0.3, %s, '[]'::jsonb)
                 """,
-                (case_id, event_id, status, risk_band),
-            )
+            (case_id, event_id, status, risk_band),
+        )
 
 
 # ===========================================================================
@@ -132,18 +128,17 @@ class TestFetchContext:
     async def test_existing_account_returns_aggregates(
         self, pool: AsyncConnectionPool
     ) -> None:
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    """
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute(
+                """
                     INSERT INTO account_history (
                         account, total_seen, last_seen_at,
                         rolling_p99_7d, rolling_p99_at, known_counterparties
                     )
                     VALUES (%s, 42, NOW(), 12345.0, NOW(), ARRAY['rA', 'rB', 'rC'])
                     """,
-                    ("rRich",),
-                )
+                ("rRich",),
+            )
         out = await fetch_context({"case_id": "c-2", "account_src": "rRich"})
         hs = out["history_summary"]
         assert hs["total_seen"] == 42
@@ -159,14 +154,13 @@ class TestEnrichExternal:
     async def test_ofac_match_pulled_when_rule_fired(
         self, pool: AsyncConnectionPool
     ) -> None:
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    """
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute(
+                """
                     INSERT INTO ofac_sdn_crypto (address, asset, sdn_uid, source_url, fetched_at)
                     VALUES ('rOFAC', 'XRP', 'NK-1', 'http://x', NOW())
                     """
-                )
+            )
 
         state = {
             "case_id": "c-1",
@@ -184,14 +178,13 @@ class TestEnrichExternal:
     async def test_no_lookup_when_rule_did_not_fire(
         self, pool: AsyncConnectionPool
     ) -> None:
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    """
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute(
+                """
                     INSERT INTO ofac_sdn_crypto (address, asset, sdn_uid, source_url, fetched_at)
                     VALUES ('rOFAC', 'XRP', 'NK-1', 'http://x', NOW())
                     """
-                )
+            )
 
         state = {
             "case_id": "c-1",
@@ -343,10 +336,9 @@ class TestRecordOutcome:
     ) -> None:
         case_id = str(uuid.uuid4())
         await _insert_event(pool, "rSrc", "rDst", 100.0, datetime(2026, 5, 1, tzinfo=UTC))
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT id FROM events LIMIT 1")
-                event_id = (await cur.fetchone())[0]
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute("SELECT id FROM events LIMIT 1")
+            event_id = (await cur.fetchone())[0]
         await _insert_case(pool, case_id, event_id, status="in_progress")
 
         state = {
@@ -358,29 +350,27 @@ class TestRecordOutcome:
         out = await record_outcome(state)
         assert out["final_status"] == "auto_closed"
 
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT status FROM cases WHERE id = %s", (case_id,))
-                row = await cur.fetchone()
-                assert row[0] == "auto_closed"
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute("SELECT status FROM cases WHERE id = %s", (case_id,))
+            row = await cur.fetchone()
+            assert row[0] == "auto_closed"
 
-                # Artifact written
-                await cur.execute(
-                    "SELECT kind, payload FROM case_artifacts WHERE case_id = %s",
-                    (case_id,),
-                )
-                arows = await cur.fetchall()
-                assert any(r[0] == "analyst_decision" for r in arows)
+            # Artifact written
+            await cur.execute(
+                "SELECT kind, payload FROM case_artifacts WHERE case_id = %s",
+                (case_id,),
+            )
+            arows = await cur.fetchall()
+            assert any(r[0] == "analyst_decision" for r in arows)
 
     async def test_approve_decision_sets_approved(
         self, pool: AsyncConnectionPool
     ) -> None:
         case_id = str(uuid.uuid4())
         await _insert_event(pool, "rSrc", "rDst", 100.0, datetime(2026, 5, 1, tzinfo=UTC))
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT id FROM events LIMIT 1")
-                event_id = (await cur.fetchone())[0]
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute("SELECT id FROM events LIMIT 1")
+            event_id = (await cur.fetchone())[0]
         await _insert_case(pool, case_id, event_id, status="pending_hitl")
 
         state = {
@@ -397,10 +387,9 @@ class TestRecordOutcome:
     ) -> None:
         case_id = str(uuid.uuid4())
         await _insert_event(pool, "rSrc", "rDst", 100.0, datetime(2026, 5, 1, tzinfo=UTC))
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT id FROM events LIMIT 1")
-                event_id = (await cur.fetchone())[0]
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute("SELECT id FROM events LIMIT 1")
+            event_id = (await cur.fetchone())[0]
         await _insert_case(pool, case_id, event_id, status="pending_hitl")
 
         state = {
@@ -417,10 +406,9 @@ class TestRecordOutcome:
     ) -> None:
         case_id = str(uuid.uuid4())
         await _insert_event(pool, "rSrc", "rDst", 100.0, datetime(2026, 5, 1, tzinfo=UTC))
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT id FROM events LIMIT 1")
-                event_id = (await cur.fetchone())[0]
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute("SELECT id FROM events LIMIT 1")
+            event_id = (await cur.fetchone())[0]
         await _insert_case(pool, case_id, event_id, status="pending_hitl")
 
         state = {

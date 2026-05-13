@@ -32,7 +32,10 @@ class Settings:
         scorer: ScorerSettings | None = None,
         enrichment: EnrichmentSettings | None = None,
     ) -> None:
-        self.runtime = runtime or RuntimeSettings()
+        # pydantic-settings reads required fields from env vars at validation
+        # time; the dataclass-shaped constructor signature mypy sees doesn't
+        # know about that. Suppress the false-positive "missing argument".
+        self.runtime = runtime or RuntimeSettings()  # type: ignore[call-arg]
         self.scorer = scorer or ScorerSettings()
         self.enrichment = enrichment or EnrichmentSettings()
 

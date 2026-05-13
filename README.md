@@ -212,9 +212,10 @@ docker compose exec app supersee score <fixture> # quick rule check
   bool flag semantics.
 - **PostgreSQL 16** schema in `migrations/`. Migrations runner in
   `supersee/db.py` uses `pg_advisory_xact_lock` for safe concurrent boot.
-- **CI:** GitHub Actions workflow runs the test suite on every push with
-  `--mock-llm` (no API key needed in CI). Postgres provided as a `services:`
-  container. *(TODO: workflow file not yet committed; see TODOS.md.)*
+- **CI:** [GitHub Actions workflow](.github/workflows/ci.yml) runs ruff,
+  mypy --strict, and the full test suite on every push with
+  `SUPERSEE_MOCK_LLM=true` (no Anthropic key needed in CI). Postgres is a
+  `services:` container; migrations apply via the project's own runner.
 
 ## What is deferred
 

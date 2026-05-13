@@ -184,7 +184,7 @@ async def _run_investigate(fixture: Path, decision: str, pretty: bool) -> None:
         await _insert_case(pool, case_id, event_id, score)
 
         # 4) Drive the graph.
-        config: "RunnableConfig" = {"configurable": {"thread_id": case_id}}
+        config: RunnableConfig = {"configurable": {"thread_id": case_id}}
         initial_state = {
             "case_id": case_id,
             "event_id": event_id,
@@ -228,54 +228,52 @@ async def _run_investigate(fixture: Path, decision: str, pretty: bool) -> None:
 
 
 async def _seed_fixture_lookups(
-    pool: "AsyncConnectionPool", ctx_raw: dict[str, Any]
+    pool: AsyncConnectionPool, ctx_raw: dict[str, Any]
 ) -> None:
     """Insert the fixture's curated addresses so the live graph nodes see them."""
     from supersee import clock
 
     now = clock.now()
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            for addr in ctx_raw.get("ofac_addresses", []):
-                await cur.execute(
-                    """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        for addr in ctx_raw.get("ofac_addresses", []):
+            await cur.execute(
+                """
                     INSERT INTO ofac_sdn_crypto (address, asset, sdn_uid, source_url, fetched_at)
                     VALUES (%s, 'XRP', 'demo-fixture', 'cli://investigate', %s)
                     ON CONFLICT (address) DO NOTHING
                     """,
-                    (addr, now),
-                )
-            for addr in ctx_raw.get("watchlist_addresses", []):
-                await cur.execute(
-                    """
+                (addr, now),
+            )
+        for addr in ctx_raw.get("watchlist_addresses", []):
+            await cur.execute(
+                """
                     INSERT INTO watchlist (address, label, risk_tier, tags)
                     VALUES (%s, 'demo-fixture', 'info', ARRAY['demo'])
                     ON CONFLICT (address) DO NOTHING
                     """,
-                    (addr,),
-                )
-            for addr in ctx_raw.get("mixer_addresses", []):
-                await cur.execute(
-                    """
+                (addr,),
+            )
+        for addr in ctx_raw.get("mixer_addresses", []):
+            await cur.execute(
+                """
                     INSERT INTO mixer_addresses (address, label, source)
                     VALUES (%s, 'demo-fixture', 'cli://investigate')
                     ON CONFLICT (address) DO NOTHING
                     """,
-                    (addr,),
-                )
+                (addr,),
+            )
 
 
 async def _insert_event(
-    pool: "AsyncConnectionPool", event: "EventData"
+    pool: AsyncConnectionPool, event: EventData
 ) -> int:
     import uuid as _uuid
 
     from supersee import clock
 
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 INSERT INTO events (
                     tx_hash, ledger_index, validated_at, tx_type,
                     account_src, account_dst, amount_xrp, memo_decoded, raw_json
@@ -283,41 +281,40 @@ async def _insert_event(
                 VALUES (%s, 1, %s, 'Payment', %s, %s, %s, %s, '{}'::jsonb)
                 RETURNING id
                 """,
-                (
-                    _uuid.uuid4().hex,
-                    clock.now(),
-                    event.account_src,
-                    event.account_dst,
-                    event.amount_xrp,
-                    event.memo_decoded,
-                ),
-            )
-            row = await cur.fetchone()
-            assert row is not None  # RETURNING id always yields a row
-            return int(row[0])
+            (
+                _uuid.uuid4().hex,
+                clock.now(),
+                event.account_src,
+                event.account_dst,
+                event.amount_xrp,
+                event.memo_decoded,
+            ),
+        )
+        row = await cur.fetchone()
+        assert row is not None  # RETURNING id always yields a row
+        return int(row[0])
 
 
 async def _insert_case(
-    pool: "AsyncConnectionPool",
+    pool: AsyncConnectionPool,
     case_id: str,
     event_id: int,
-    score: "ScoringResult",
+    score: ScoringResult,
 ) -> None:
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 INSERT INTO cases (id, event_id, status, risk_score, risk_band, rule_hits)
                 VALUES (%s, %s, 'in_progress', %s, %s, %s::jsonb)
                 """,
-                (
-                    case_id,
-                    event_id,
-                    score.risk_score,
-                    score.risk_band,
-                    json.dumps(score.to_jsonb()),
-                ),
-            )
+            (
+                case_id,
+                event_id,
+                score.risk_score,
+                score.risk_band,
+                json.dumps(score.to_jsonb()),
+            ),
+        )
 
 
 if __name__ == "__main__":

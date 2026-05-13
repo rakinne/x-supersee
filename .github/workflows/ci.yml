@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-flight runs when a new push lands on the same branch / PR.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: supersee
+          POSTGRES_PASSWORD: supersee_dev
+          POSTGRES_DB: supersee
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U supersee -d supersee"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+          --health-start-period 5s
+
+    env:
+      # Mock the LLM so CI never needs an Anthropic API key. The
+      # MockNarrativeClient produces deterministic canned narratives via
+      # rule-hit dispatch; the integration tests that need a real Anthropic
+      # call are gated separately.
+      SUPERSEE_MOCK_LLM: "true"
+      DATABASE_URL: postgresql://supersee:supersee_dev@localhost:5432/supersee
+      PYTHONUNBUFFERED: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Apply migrations
+        # Runs the project's own migrations runner (the same one the live
+        # app uses at startup) so any future migration runner changes are
+        # also covered by CI. Uses pg_advisory_xact_lock internally, so it
+        # is safe to run concurrently.
+        run: |
+          python - <<'PY'
+          import asyncio
+          from supersee import db
+          async def main():
+              await db.init_pool()
+              await db.apply_migrations()
+              await db.close_pool()
+          asyncio.run(main())
+          PY
+
+      - name: Lint with ruff
+        run: ruff check supersee
+
+      - name: Type check with mypy (strict)
+        run: mypy supersee
+
+      - name: Test with pytest
+        run: pytest supersee -v --tb=short
+
+      - name: Show schema_migrations table on failure
+        if: failure()
+        env:
+          PGPASSWORD: supersee_dev
+        run: |
+          psql -h localhost -U supersee -d supersee \
+            -c "SELECT * FROM schema_migrations ORDER BY version;" \
+            || echo "(could not read schema_migrations)"

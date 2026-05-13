@@ -194,12 +194,11 @@ async def upsert_sdn_addresses(
     if not addresses:
         return 0
     now = clock.now()
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            # executemany is fine here; the table is small (<10k rows total) and
-            # daily refresh is not a hot path. If volume grows, switch to COPY.
-            await cur.executemany(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        # executemany is fine here; the table is small (<10k rows total) and
+        # daily refresh is not a hot path. If volume grows, switch to COPY.
+        await cur.executemany(
+            """
                 INSERT INTO ofac_sdn_crypto (address, asset, sdn_uid, source_url, fetched_at)
                 VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (address) DO UPDATE SET
@@ -208,8 +207,8 @@ async def upsert_sdn_addresses(
                     source_url = EXCLUDED.source_url,
                     fetched_at = EXCLUDED.fetched_at
                 """,
-                [(sdn.address, sdn.asset, sdn.source_id, url, now) for sdn in addresses],
-            )
+            [(sdn.address, sdn.asset, sdn.source_id, url, now) for sdn in addresses],
+        )
     return len(addresses)
 
 
@@ -238,8 +237,7 @@ async def refresh_ofac(pool: AsyncConnectionPool, settings: EnrichmentSettings) 
 
 async def get_last_fetched_at(pool: AsyncConnectionPool) -> datetime | None:
     """Return the most recent `fetched_at` in `ofac_sdn_crypto`, or None if empty."""
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT MAX(fetched_at) FROM ofac_sdn_crypto")
-            row = await cur.fetchone()
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute("SELECT MAX(fetched_at) FROM ofac_sdn_crypto")
+        row = await cur.fetchone()
     return row[0] if row else None

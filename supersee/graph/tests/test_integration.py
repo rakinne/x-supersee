@@ -16,13 +16,12 @@ from langgraph.types import Command
 from psycopg_pool import AsyncConnectionPool
 
 from supersee import db
-from supersee.graph.app import build_graph, close_graph, init_graph
+from supersee.graph.app import close_graph, init_graph
 from supersee.graph.narrative import (
     Narrative,
     NarrativeEvidenceItem,
     StaticNarrativeClient,
 )
-
 
 _DSN = os.environ.get("DATABASE_URL", "")
 _IS_FAKE_DSN = "fake" in _DSN or _DSN == "postgresql://test@localhost/test"
@@ -45,23 +44,22 @@ async def pool() -> AsyncIterator[AsyncConnectionPool]:
 
 @pytest.fixture(autouse=True)
 async def clean_db(pool: AsyncConnectionPool) -> AsyncIterator[None]:
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 TRUNCATE events, account_history, cases, case_artifacts,
                          ofac_sdn_crypto, watchlist, mixer_addresses,
                          exchange_labels, ingestor_cursor, enrichment_cache,
                          rate_limits
                 RESTART IDENTITY CASCADE
                 """
-            )
-            # Drop checkpointer tables so each integration test starts clean.
-            # AsyncPostgresSaver.setup() recreates them as needed.
-            await cur.execute("DROP TABLE IF EXISTS checkpoint_writes CASCADE")
-            await cur.execute("DROP TABLE IF EXISTS checkpoint_blobs CASCADE")
-            await cur.execute("DROP TABLE IF EXISTS checkpoints CASCADE")
-            await cur.execute("DROP TABLE IF EXISTS checkpoint_migrations CASCADE")
+        )
+        # Drop checkpointer tables so each integration test starts clean.
+        # AsyncPostgresSaver.setup() recreates them as needed.
+        await cur.execute("DROP TABLE IF EXISTS checkpoint_writes CASCADE")
+        await cur.execute("DROP TABLE IF EXISTS checkpoint_blobs CASCADE")
+        await cur.execute("DROP TABLE IF EXISTS checkpoints CASCADE")
+        await cur.execute("DROP TABLE IF EXISTS checkpoint_migrations CASCADE")
     yield
 
 
@@ -73,10 +71,9 @@ async def _seed_event_and_case(
 ) -> tuple[str, int]:
     """Insert a fresh event + case row. Returns (case_id, event_id)."""
     case_id = str(uuid.uuid4())
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 INSERT INTO events (
                     tx_hash, ledger_index, validated_at, tx_type,
                     account_src, account_dst, amount_xrp, raw_json
@@ -84,26 +81,26 @@ async def _seed_event_and_case(
                 VALUES (%s, %s, %s, 'Payment', 'rSrc', 'rDst', 75000.0, '{}'::jsonb)
                 RETURNING id
                 """,
-                (
-                    uuid.uuid4().hex,
-                    1,
-                    datetime.now(UTC),
-                ),
-            )
-            event_id = (await cur.fetchone())[0]
-            await cur.execute(
-                """
+            (
+                uuid.uuid4().hex,
+                1,
+                datetime.now(UTC),
+            ),
+        )
+        event_id = (await cur.fetchone())[0]
+        await cur.execute(
+            """
                 INSERT INTO cases (id, event_id, status, risk_score, risk_band, rule_hits)
                 VALUES (%s, %s, 'pending', %s, %s, %s::jsonb)
                 """,
-                (
-                    case_id,
-                    event_id,
-                    0.9 if risk_band == "high" else 0.3,
-                    risk_band,
-                    __import__("json").dumps(rule_hits or []),
-                ),
-            )
+            (
+                case_id,
+                event_id,
+                0.9 if risk_band == "high" else 0.3,
+                risk_band,
+                __import__("json").dumps(rule_hits or []),
+            ),
+        )
     return case_id, event_id
 
 
@@ -170,10 +167,9 @@ class TestAutoCloseFlow:
         assert "hitl_pause" not in nodes
 
         # cases row updated
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT status FROM cases WHERE id = %s", (case_id,))
-                assert (await cur.fetchone())[0] == "auto_closed"
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute("SELECT status FROM cases WHERE id = %s", (case_id,))
+            assert (await cur.fetchone())[0] == "auto_closed"
 
 
 # ===========================================================================
@@ -209,10 +205,9 @@ class TestHITLFlow:
         )
 
         # The case row should be in 'escalated' (high band + escalate action).
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT status FROM cases WHERE id = %s", (case_id,))
-                assert (await cur.fetchone())[0] == "escalated"
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute("SELECT status FROM cases WHERE id = %s", (case_id,))
+            assert (await cur.fetchone())[0] == "escalated"
 
         # The checkpointer should have a pending state for this thread.
         state_snapshot = await graph.aget_state(config)
@@ -232,10 +227,9 @@ class TestHITLFlow:
         assert "hitl_pause" in nodes
         assert "record_outcome" in nodes
 
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT status FROM cases WHERE id = %s", (case_id,))
-                assert (await cur.fetchone())[0] == "approved"
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute("SELECT status FROM cases WHERE id = %s", (case_id,))
+            assert (await cur.fetchone())[0] == "approved"
 
     async def test_resume_with_reject_marks_rejected(
         self, pool: AsyncConnectionPool
@@ -301,10 +295,9 @@ class TestRestartRecovery:
             config,
         )
 
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute("SELECT status FROM cases WHERE id = %s", (case_id,))
-                assert (await cur.fetchone())[0] in ("pending_hitl", "escalated")
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute("SELECT status FROM cases WHERE id = %s", (case_id,))
+            assert (await cur.fetchone())[0] in ("pending_hitl", "escalated")
 
         # ---- Simulate restart: tear down and rebuild ----
         await close_graph()

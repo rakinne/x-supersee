@@ -21,7 +21,6 @@ from supersee.config.scorer import ScorerSettings
 from supersee.scorer import history
 from supersee.scorer.score_event import EventData
 
-
 # These tests need a real database. Skip if DATABASE_URL is the fake one
 # the unit-test conftest sets (i.e., we're not running inside a stack).
 _DSN = os.environ.get("DATABASE_URL", "")
@@ -46,17 +45,16 @@ async def pool() -> AsyncIterator[AsyncConnectionPool]:
 @pytest.fixture(autouse=True)
 async def clean_db(pool: AsyncConnectionPool) -> AsyncIterator[None]:
     """Truncate per-test state. RESTART IDENTITY keeps sequences predictable."""
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 TRUNCATE events, account_history, cases, case_artifacts,
                          ofac_sdn_crypto, watchlist, mixer_addresses,
                          exchange_labels, ingestor_cursor, enrichment_cache,
                          rate_limits
                 RESTART IDENTITY CASCADE
                 """
-            )
+        )
     history.invalidate_lookups()
     yield
 
@@ -74,26 +72,25 @@ async def _insert_event(
     validated_at: datetime,
     tx_type: str = "Payment",
 ) -> None:
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 INSERT INTO events (
                     tx_hash, ledger_index, validated_at, tx_type,
                     account_src, account_dst, amount_xrp, raw_json
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, '{}'::jsonb)
                 """,
-                (
-                    uuid.uuid4().hex,
-                    1,
-                    validated_at,
-                    tx_type,
-                    account_src,
-                    account_dst,
-                    amount_xrp,
-                ),
-            )
+            (
+                uuid.uuid4().hex,
+                1,
+                validated_at,
+                tx_type,
+                account_src,
+                account_dst,
+                amount_xrp,
+            ),
+        )
 
 
 # ===========================================================================
@@ -129,22 +126,20 @@ class TestLookups:
     async def test_cache_hit_within_ttl(self, pool: AsyncConnectionPool) -> None:
         first = await history.get_lookups(pool, ttl_seconds=300)
         # Mutate the DB; the cached snapshot should NOT pick it up.
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    "INSERT INTO watchlist (address, label) VALUES ('rNew', 'after-cache')"
-                )
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO watchlist (address, label) VALUES ('rNew', 'after-cache')"
+            )
         second = await history.get_lookups(pool, ttl_seconds=300)
         assert second is first, "should return identical cached object"
         assert "rNew" not in second.watchlist_addresses
 
     async def test_invalidate_forces_reload(self, pool: AsyncConnectionPool) -> None:
         await history.get_lookups(pool, ttl_seconds=300)
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    "INSERT INTO watchlist (address, label) VALUES ('rNew', 'post-invalidate')"
-                )
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO watchlist (address, label) VALUES ('rNew', 'post-invalidate')"
+            )
         history.invalidate_lookups()
         refreshed = await history.get_lookups(pool, ttl_seconds=300)
         assert "rNew" in refreshed.watchlist_addresses
@@ -169,18 +164,17 @@ class TestBuildContext:
     async def test_existing_account_history_loaded(
         self, pool: AsyncConnectionPool, cfg: ScorerSettings
     ) -> None:
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    """
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute(
+                """
                     INSERT INTO account_history (
                         account, total_seen, last_seen_at, rolling_p99_7d,
                         rolling_p99_at, known_counterparties
                     )
                     VALUES (%s, 50, NOW(), 80000.0, NOW(), ARRAY['rKnown1', 'rKnown2'])
                     """,
-                    ("rExisting",),
-                )
+                ("rExisting",),
+            )
 
         event = EventData(amount_xrp=100.0, account_src="rExisting", account_dst="rNewDst", memo_decoded=None)
         lookups = await history.get_lookups(pool, ttl_seconds=0)
@@ -236,14 +230,13 @@ class TestRecordEvent:
         with clock.freeze_time(anchor):
             await history.record_event(pool, event)
 
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    "SELECT total_seen, last_seen_at, known_counterparties "
-                    "FROM account_history WHERE account = %s",
-                    ("rNew",),
-                )
-                row = await cur.fetchone()
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute(
+                "SELECT total_seen, last_seen_at, known_counterparties "
+                "FROM account_history WHERE account = %s",
+                ("rNew",),
+            )
+            row = await cur.fetchone()
         assert row is not None
         assert row[0] == 1
         assert row[1] == anchor
@@ -267,14 +260,13 @@ class TestRecordEvent:
         with clock.freeze_time(anchor):
             await history.record_event(pool, event)
 
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    "SELECT total_seen, last_seen_at, known_counterparties "
-                    "FROM account_history WHERE account = %s",
-                    ("rExisting",),
-                )
-                row = await cur.fetchone()
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute(
+                "SELECT total_seen, last_seen_at, known_counterparties "
+                "FROM account_history WHERE account = %s",
+                ("rExisting",),
+            )
+            row = await cur.fetchone()
         assert row is not None
         assert row[0] == 6
         assert row[1] == anchor
@@ -297,13 +289,12 @@ class TestRecordEvent:
         event = EventData(amount_xrp=100.0, account_src="rExisting", account_dst="rA", memo_decoded=None)
         await history.record_event(pool, event)
 
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    "SELECT known_counterparties FROM account_history WHERE account = %s",
-                    ("rExisting",),
-                )
-                row = await cur.fetchone()
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute(
+                "SELECT known_counterparties FROM account_history WHERE account = %s",
+                ("rExisting",),
+            )
+            row = await cur.fetchone()
         # rA was first; after record, it's last (most recent).
         assert row is not None
         assert row[0] == ["rB", "rC", "rA"]
@@ -324,13 +315,12 @@ class TestRecordEvent:
         event = EventData(amount_xrp=None, account_src="rExisting", account_dst=None, memo_decoded=None)
         await history.record_event(pool, event)
 
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    "SELECT total_seen, known_counterparties FROM account_history WHERE account = %s",
-                    ("rExisting",),
-                )
-                row = await cur.fetchone()
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute(
+                "SELECT total_seen, known_counterparties FROM account_history WHERE account = %s",
+                ("rExisting",),
+            )
+            row = await cur.fetchone()
         assert row is not None
         assert row[0] == 2
         assert row[1] == ["rA", "rB"]
@@ -384,13 +374,12 @@ class TestRecomputeP99:
             did_recompute = await history.recompute_p99_if_stale(pool, "rStale", cfg)
 
         assert did_recompute is True
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    "SELECT rolling_p99_7d, rolling_p99_at FROM account_history WHERE account = %s",
-                    ("rStale",),
-                )
-                row = await cur.fetchone()
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute(
+                "SELECT rolling_p99_7d, rolling_p99_at FROM account_history WHERE account = %s",
+                ("rStale",),
+            )
+            row = await cur.fetchone()
         assert row is not None
         # P99 of {100, 200, 500, 1000, 9000} via percentile_cont is ~7400.
         assert row[0] is not None
@@ -406,13 +395,12 @@ class TestRecomputeP99:
             did_recompute = await history.recompute_p99_if_stale(pool, "rGhost", cfg)
         assert did_recompute is True
 
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    "SELECT rolling_p99_7d, rolling_p99_at FROM account_history WHERE account = %s",
-                    ("rGhost",),
-                )
-                row = await cur.fetchone()
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute(
+                "SELECT rolling_p99_7d, rolling_p99_at FROM account_history WHERE account = %s",
+                ("rGhost",),
+            )
+            row = await cur.fetchone()
         assert row is not None
         assert row[0] is None  # No events → percentile_cont returns NULL
         assert row[1] == anchor

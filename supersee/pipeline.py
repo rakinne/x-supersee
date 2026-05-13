@@ -54,25 +54,23 @@ logger = logging.getLogger(__name__)
 
 
 async def _load_event(pool: AsyncConnectionPool, event_id: int) -> tuple[Any, ...] | None:
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 SELECT id, account_src, account_dst, amount_xrp, memo_decoded
                 FROM events WHERE id = %s
                 """,
-                (event_id,),
-            )
-            return await cur.fetchone()
+            (event_id,),
+        )
+        return await cur.fetchone()
 
 
 async def _has_case_for_event(pool: AsyncConnectionPool, event_id: int) -> bool:
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "SELECT 1 FROM cases WHERE event_id = %s LIMIT 1", (event_id,)
-            )
-            return (await cur.fetchone()) is not None
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            "SELECT 1 FROM cases WHERE event_id = %s LIMIT 1", (event_id,)
+        )
+        return (await cur.fetchone()) is not None
 
 
 async def _write_case_row(
@@ -84,15 +82,14 @@ async def _write_case_row(
     rule_hits_json: str,
     status: str,
 ) -> None:
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 INSERT INTO cases (id, event_id, status, risk_score, risk_band, rule_hits)
                 VALUES (%s, %s, %s, %s, %s, %s::jsonb)
                 """,
-                (case_id, event_id, status, risk_score, risk_band, rule_hits_json),
-            )
+            (case_id, event_id, status, risk_score, risk_band, rule_hits_json),
+        )
 
 
 async def _process_one_event(
@@ -179,19 +176,18 @@ async def _load_case_for_graph(
     pool: AsyncConnectionPool, case_id: str
 ) -> dict[str, Any] | None:
     """Hydrate the initial InvestigationState dict for a case_id."""
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 SELECT c.event_id, c.risk_band, c.rule_hits,
                        e.account_src, e.account_dst, e.amount_xrp, e.memo_decoded
                 FROM cases c
                 JOIN events e ON e.id = c.event_id
                 WHERE c.id = %s
                 """,
-                (case_id,),
-            )
-            row = await cur.fetchone()
+            (case_id,),
+        )
+        row = await cur.fetchone()
     if row is None:
         return None
     return {
@@ -207,12 +203,11 @@ async def _load_case_for_graph(
 
 
 async def _mark_case_in_progress(pool: AsyncConnectionPool, case_id: str) -> None:
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "UPDATE cases SET status = 'in_progress' WHERE id = %s AND status = 'pending'",
-                (case_id,),
-            )
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            "UPDATE cases SET status = 'in_progress' WHERE id = %s AND status = 'pending'",
+            (case_id,),
+        )
 
 
 async def _drive_case(pool: AsyncConnectionPool, case_id: str) -> None:
@@ -276,10 +271,9 @@ async def recovery_sweep(
     event_limit = event_limit or settings.runtime.recovery_sweep_limit
     case_limit = case_limit or settings.runtime.recovery_sweep_limit
 
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 SELECT e.id FROM events e
                 WHERE NOT EXISTS (
                     SELECT 1 FROM cases c WHERE c.event_id = e.id
@@ -287,20 +281,20 @@ async def recovery_sweep(
                 ORDER BY e.id
                 LIMIT %s
                 """,
-                (event_limit,),
-            )
-            event_rows = await cur.fetchall()
+            (event_limit,),
+        )
+        event_rows = await cur.fetchall()
 
-            await cur.execute(
-                """
+        await cur.execute(
+            """
                 SELECT id FROM cases
                 WHERE status IN ('pending', 'in_progress')
                 ORDER BY created_at
                 LIMIT %s
                 """,
-                (case_limit,),
-            )
-            case_rows = await cur.fetchall()
+            (case_limit,),
+        )
+        case_rows = await cur.fetchall()
 
     events_enqueued = 0
     for r in event_rows:

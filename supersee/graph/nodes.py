@@ -76,18 +76,17 @@ async def fetch_context(state: InvestigationState) -> dict[str, Any]:
     pool = db.get_pool()
 
     history_summary: dict[str, Any] = {}
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 SELECT total_seen, last_seen_at, rolling_p99_7d,
                        rolling_p99_at, array_length(known_counterparties, 1)
                 FROM account_history
                 WHERE account = %s
                 """,
-                (account_src,),
-            )
-            row = await cur.fetchone()
+            (account_src,),
+        )
+        row = await cur.fetchone()
     if row is not None:
         history_summary = {
             "total_seen": int(row[0] or 0),
@@ -138,74 +137,73 @@ async def _query_enrichment(pool: AsyncConnectionPool, state: InvestigationState
         "recent_events_dst": [],
     }
 
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            if "ofac_sdn_match" in fired_rules:
-                addrs = [a for a in [account_src, account_dst] if a]
-                await cur.execute(
-                    "SELECT address, asset, sdn_uid, source_url, fetched_at "
-                    "FROM ofac_sdn_crypto WHERE address = ANY(%s)",
-                    (addrs,),
-                )
-                for r in await cur.fetchall():
-                    enrichment["ofac_matches"].append({
-                        "address": r[0],
-                        "asset": r[1],
-                        "sdn_uid": r[2],
-                        "source_url": r[3],
-                        "fetched_at": r[4].isoformat() if r[4] else None,
-                    })
+    async with pool.connection() as conn, conn.cursor() as cur:
+        if "ofac_sdn_match" in fired_rules:
+            addrs = [a for a in [account_src, account_dst] if a]
+            await cur.execute(
+                "SELECT address, asset, sdn_uid, source_url, fetched_at "
+                "FROM ofac_sdn_crypto WHERE address = ANY(%s)",
+                (addrs,),
+            )
+            for r in await cur.fetchall():
+                enrichment["ofac_matches"].append({
+                    "address": r[0],
+                    "asset": r[1],
+                    "sdn_uid": r[2],
+                    "source_url": r[3],
+                    "fetched_at": r[4].isoformat() if r[4] else None,
+                })
 
-            if "watchlist_hit" in fired_rules:
-                addrs = [a for a in [account_src, account_dst] if a]
-                await cur.execute(
-                    "SELECT address, label, risk_tier, tags FROM watchlist "
-                    "WHERE address = ANY(%s)",
-                    (addrs,),
-                )
-                for r in await cur.fetchall():
-                    enrichment["watchlist_matches"].append({
-                        "address": r[0],
-                        "label": r[1],
-                        "risk_tier": r[2],
-                        "tags": list(r[3] or []),
-                    })
+        if "watchlist_hit" in fired_rules:
+            addrs = [a for a in [account_src, account_dst] if a]
+            await cur.execute(
+                "SELECT address, label, risk_tier, tags FROM watchlist "
+                "WHERE address = ANY(%s)",
+                (addrs,),
+            )
+            for r in await cur.fetchall():
+                enrichment["watchlist_matches"].append({
+                    "address": r[0],
+                    "label": r[1],
+                    "risk_tier": r[2],
+                    "tags": list(r[3] or []),
+                })
 
-            if "mixer_direct" in fired_rules and account_dst:
-                await cur.execute(
-                    "SELECT address, label, source FROM mixer_addresses "
-                    "WHERE address = %s",
-                    (account_dst,),
-                )
-                for r in await cur.fetchall():
-                    enrichment["mixer_matches"].append({
-                        "address": r[0],
-                        "label": r[1],
-                        "source": r[2],
-                    })
+        if "mixer_direct" in fired_rules and account_dst:
+            await cur.execute(
+                "SELECT address, label, source FROM mixer_addresses "
+                "WHERE address = %s",
+                (account_dst,),
+            )
+            for r in await cur.fetchall():
+                enrichment["mixer_matches"].append({
+                    "address": r[0],
+                    "label": r[1],
+                    "source": r[2],
+                })
 
-            # A few recent events for narrative color (both src and dst).
-            for key, addr in (("recent_events_src", account_src),
-                              ("recent_events_dst", account_dst)):
-                if not addr:
-                    continue
-                await cur.execute(
-                    """
+        # A few recent events for narrative color (both src and dst).
+        for key, addr in (("recent_events_src", account_src),
+                          ("recent_events_dst", account_dst)):
+            if not addr:
+                continue
+            await cur.execute(
+                """
                     SELECT tx_hash, validated_at, tx_type, amount_xrp
                     FROM events
                     WHERE account_src = %s OR account_dst = %s
                     ORDER BY validated_at DESC
                     LIMIT 5
                     """,
-                    (addr, addr),
-                )
-                for r in await cur.fetchall():
-                    enrichment[key].append({
-                        "tx_hash": r[0],
-                        "validated_at": r[1].isoformat() if r[1] else None,
-                        "tx_type": r[2],
-                        "amount_xrp": float(r[3]) if r[3] is not None else None,
-                    })
+                (addr, addr),
+            )
+            for r in await cur.fetchall():
+                enrichment[key].append({
+                    "tx_hash": r[0],
+                    "validated_at": r[1].isoformat() if r[1] else None,
+                    "tx_type": r[2],
+                    "amount_xrp": float(r[3]) if r[3] is not None else None,
+                })
     return enrichment
 
 
@@ -398,12 +396,11 @@ async def hitl_pause(state: InvestigationState) -> dict[str, Any]:
     case_id = state.get("case_id")
     if case_id:
         pool = db.get_pool()
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    "UPDATE cases SET status = %s WHERE id = %s",
-                    (target_status, case_id),
-                )
+        async with pool.connection() as conn, conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE cases SET status = %s WHERE id = %s",
+                (target_status, case_id),
+            )
 
     # interrupt() suspends the graph; resume value populates 'analyst_decision'.
     decision = interrupt({"status": target_status, "case_id": case_id})
@@ -456,19 +453,18 @@ def _final_status_from_state(state: InvestigationState) -> str:
 )
 async def _write_outcome(pool: AsyncConnectionPool, case_id: str,
                           final_status: str, payload: dict[str, Any]) -> None:
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "UPDATE cases SET status = %s WHERE id = %s",
-                (final_status, case_id),
-            )
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            "UPDATE cases SET status = %s WHERE id = %s",
+            (final_status, case_id),
+        )
+        await cur.execute(
+            """
                 INSERT INTO case_artifacts (case_id, kind, payload)
                 VALUES (%s, 'analyst_decision', %s::jsonb)
                 """,
-                (case_id, _to_json(payload)),
-            )
+            (case_id, _to_json(payload)),
+        )
 
 
 def _to_json(payload: dict[str, Any]) -> str:

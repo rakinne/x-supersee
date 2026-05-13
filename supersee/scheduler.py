@@ -55,13 +55,12 @@ async def maybe_refresh_ofac(pool: AsyncConnectionPool) -> bool:
 async def maybe_cleanup_artifacts(pool: AsyncConnectionPool) -> int:
     """Delete `case_artifacts` rows older than the retention window."""
     cutoff = clock.now() - timedelta(days=settings.runtime.case_artifact_retention_days)
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "DELETE FROM case_artifacts WHERE created_at < %s",
-                (cutoff,),
-            )
-            deleted = cur.rowcount
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            "DELETE FROM case_artifacts WHERE created_at < %s",
+            (cutoff,),
+        )
+        deleted = cur.rowcount
     if deleted and deleted > 0:
         logger.info(
             "artifact retention: deleted %d rows older than %s",

@@ -181,19 +181,18 @@ async def cases_queue(request: Request, all: int = 0, q: str | None = None) -> H
     show_all = bool(all)
     pool = db.get_pool()
 
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            where: str
-            params: tuple[Any, ...]
-            if show_all:
-                where, params = "", ()
-            else:
-                where, params = (
-                    "WHERE status = ANY(%s)",
-                    (list(_QUEUE_STATUSES),),
-                )
+    async with pool.connection() as conn, conn.cursor() as cur:
+        where: str
+        params: tuple[Any, ...]
+        if show_all:
+            where, params = "", ()
+        else:
+            where, params = (
+                "WHERE status = ANY(%s)",
+                (list(_QUEUE_STATUSES),),
+            )
 
-            await cur.execute(f"""
+        await cur.execute(f"""
                 SELECT id, event_id, status, risk_score, risk_band,
                        rule_hits, created_at,
                        (SELECT account_src FROM events WHERE id = c.event_id) AS account_src,
@@ -206,13 +205,13 @@ async def cases_queue(request: Request, all: int = 0, q: str | None = None) -> H
                     created_at DESC
                 LIMIT 200
             """, params)
-            rows = await cur.fetchall()
+        rows = await cur.fetchall()
 
-            # Aggregate counts for sidebar
-            await cur.execute("SELECT status, COUNT(*) FROM cases GROUP BY status")
-            status_counts = {r[0]: int(r[1]) for r in await cur.fetchall()}
-            await cur.execute("SELECT risk_band, COUNT(*) FROM cases GROUP BY risk_band")
-            band_counts = {r[0]: int(r[1]) for r in await cur.fetchall()}
+        # Aggregate counts for sidebar
+        await cur.execute("SELECT status, COUNT(*) FROM cases GROUP BY status")
+        status_counts = {r[0]: int(r[1]) for r in await cur.fetchall()}
+        await cur.execute("SELECT risk_band, COUNT(*) FROM cases GROUP BY risk_band")
+        band_counts = {r[0]: int(r[1]) for r in await cur.fetchall()}
 
     cases = []
     for r in rows:
@@ -253,9 +252,8 @@ async def case_detail(request: Request, case_id: str, flash: str | None = None) 
     from supersee.api import templates  # avoid circular at import time
 
     pool = db.get_pool()
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("""
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute("""
                 SELECT id, event_id, status, risk_score, risk_band,
                        rule_hits, created_at, updated_at,
                        (SELECT account_src   FROM events WHERE id = c.event_id),
@@ -265,24 +263,24 @@ async def case_detail(request: Request, case_id: str, flash: str | None = None) 
                 FROM cases c
                 WHERE id = %s
             """, (case_id,))
-            row = await cur.fetchone()
-            if row is None:
-                raise HTTPException(404, f"case {case_id} not found")
+        row = await cur.fetchone()
+        if row is None:
+            raise HTTPException(404, f"case {case_id} not found")
 
-            # Recent analyst_decision artifact (if any) for closed cases.
-            await cur.execute("""
+        # Recent analyst_decision artifact (if any) for closed cases.
+        await cur.execute("""
                 SELECT payload FROM case_artifacts
                 WHERE case_id = %s AND kind = 'analyst_decision'
                 ORDER BY created_at DESC LIMIT 1
             """, (case_id,))
-            art_row = await cur.fetchone()
-            decision_artifact = art_row[0] if art_row else None
+        art_row = await cur.fetchone()
+        decision_artifact = art_row[0] if art_row else None
 
-            # Curated counts for sidebar
-            await cur.execute("SELECT status, COUNT(*) FROM cases GROUP BY status")
-            status_counts = {r[0]: int(r[1]) for r in await cur.fetchall()}
-            await cur.execute("SELECT risk_band, COUNT(*) FROM cases GROUP BY risk_band")
-            band_counts = {r[0]: int(r[1]) for r in await cur.fetchall()}
+        # Curated counts for sidebar
+        await cur.execute("SELECT status, COUNT(*) FROM cases GROUP BY status")
+        status_counts = {r[0]: int(r[1]) for r in await cur.fetchall()}
+        await cur.execute("SELECT risk_band, COUNT(*) FROM cases GROUP BY risk_band")
+        band_counts = {r[0]: int(r[1]) for r in await cur.fetchall()}
 
     rule_hits = list(row[5] or [])
     rule_hits = sorted(rule_hits, key=lambda h: -float(h.get("score", 0)))
@@ -380,10 +378,9 @@ async def case_decision(
         )
 
     pool = db.get_pool()
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT status FROM cases WHERE id = %s", (case_id,))
-            row = await cur.fetchone()
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute("SELECT status FROM cases WHERE id = %s", (case_id,))
+        row = await cur.fetchone()
     if row is None:
         raise HTTPException(404, f"case {case_id} not found")
 

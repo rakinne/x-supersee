@@ -34,7 +34,7 @@ from typing import Any
 
 from psycopg_pool import AsyncConnectionPool
 from xrpl.asyncio.clients import AsyncWebsocketClient
-from xrpl.models.requests import Subscribe, StreamParameter
+from xrpl.models.requests import StreamParameter, Subscribe
 
 from supersee.config import settings
 
@@ -146,10 +146,9 @@ def normalize_payment_message(msg: dict[str, Any]) -> dict[str, Any] | None:
 
 async def _insert_event(pool: AsyncConnectionPool, row: dict[str, Any]) -> int | None:
     """Insert one normalized event. Returns the event id on insert, None on conflict."""
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 INSERT INTO events (
                     tx_hash, ledger_index, validated_at, tx_type,
                     account_src, account_dst, amount_xrp, memo_decoded, raw_json
@@ -158,45 +157,43 @@ async def _insert_event(pool: AsyncConnectionPool, row: dict[str, Any]) -> int |
                 ON CONFLICT (tx_hash) DO NOTHING
                 RETURNING id
                 """,
-                (
-                    row["tx_hash"],
-                    row["ledger_index"],
-                    row["validated_at"],
-                    row["tx_type"],
-                    row["account_src"],
-                    row["account_dst"],
-                    row["amount_xrp"],
-                    row["memo_decoded"],
-                    json.dumps(row["raw_json"], default=str),
-                ),
-            )
-            r = await cur.fetchone()
-            return int(r[0]) if r else None
+            (
+                row["tx_hash"],
+                row["ledger_index"],
+                row["validated_at"],
+                row["tx_type"],
+                row["account_src"],
+                row["account_dst"],
+                row["amount_xrp"],
+                row["memo_decoded"],
+                json.dumps(row["raw_json"], default=str),
+            ),
+        )
+        r = await cur.fetchone()
+        return int(r[0]) if r else None
 
 
 async def _load_cursor(pool: AsyncConnectionPool) -> int | None:
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "SELECT last_validated_ledger FROM ingestor_cursor WHERE id = 1"
-            )
-            r = await cur.fetchone()
-            return int(r[0]) if r else None
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            "SELECT last_validated_ledger FROM ingestor_cursor WHERE id = 1"
+        )
+        r = await cur.fetchone()
+        return int(r[0]) if r else None
 
 
 async def _save_cursor(pool: AsyncConnectionPool, ledger_index: int) -> None:
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
                 INSERT INTO ingestor_cursor (id, last_validated_ledger)
                 VALUES (1, %s)
                 ON CONFLICT (id) DO UPDATE SET
                     last_validated_ledger = EXCLUDED.last_validated_ledger,
                     updated_at = NOW()
                 """,
-                (ledger_index,),
-            )
+            (ledger_index,),
+        )
 
 
 # ===========================================================================

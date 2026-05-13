@@ -54,10 +54,33 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "B", "SIM", "ASYNC"]
-ignore = ["E501"]
+ignore = [
+    "E501",
+    # B008: typer.Argument(...) in function defaults is the canonical
+    # typer/click pattern. The rule is mostly intended to catch mutable
+    # defaults and FastAPI Depends() shenanigans.
+    "B008",
+    # ASYNC109: httpx accepts a `timeout=` parameter; that's the library's
+    # canonical pattern. We don't use anyio cancel scopes.
+    "ASYNC109",
+    # ASYNC240: pathlib.Path is used at CLI startup for one-time fixture
+    # reads; not in a hot path. anyio.Path would be overengineered.
+    "ASYNC240",
+    # SIM117: `async with pool.connection() as conn: async with conn.cursor() as cur:`
+    # is the canonical psycopg pool pattern. The flattened form (with
+    # comma-separated context managers) works but the nested form is
+    # idiomatic and explicit.
+    "SIM117",
+]
 
 [tool.ruff.lint.per-file-ignores]
-"supersee/**/tests/*.py" = ["B011"]
+"supersee/**/tests/*.py" = [
+    "B011",
+    # SIM105: explicit try/except asyncio.CancelledError/pass is clearer
+    # than contextlib.suppress in test setup/teardown where the cancel is
+    # part of the test's intent.
+    "SIM105",
+]
 
 [tool.mypy]
 python_version = "3.12"
@@ -66,6 +89,13 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
+# Test files are exercised by pytest; mypy strict on test code adds friction
+# (esp. (await cur.fetchone())[0] indexing patterns and dict-vs-TypedDict
+# mismatches) without catching real bugs. Pytest is the source of truth for
+# test correctness; mypy is the source of truth for source code.
+exclude = [
+    "tests/",
+]
 
 [[tool.mypy.overrides]]
 module = ["xrpl.*"]

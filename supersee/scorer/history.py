@@ -68,16 +68,15 @@ def invalidate_lookups() -> None:
 
 async def _load_lookups_from_db(pool: AsyncConnectionPool) -> Lookups:
     """Single round-trip per curated table. All sets are small (<<10k rows)."""
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT address FROM ofac_sdn_crypto")
-            ofac = frozenset(row[0] for row in await cur.fetchall())
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute("SELECT address FROM ofac_sdn_crypto")
+        ofac = frozenset(row[0] for row in await cur.fetchall())
 
-            await cur.execute("SELECT address FROM watchlist")
-            watch = frozenset(row[0] for row in await cur.fetchall())
+        await cur.execute("SELECT address FROM watchlist")
+        watch = frozenset(row[0] for row in await cur.fetchall())
 
-            await cur.execute("SELECT address FROM mixer_addresses")
-            mixer = frozenset(row[0] for row in await cur.fetchall())
+        await cur.execute("SELECT address FROM mixer_addresses")
+        mixer = frozenset(row[0] for row in await cur.fetchall())
 
     return Lookups(
         ofac_addresses=ofac,
@@ -125,37 +124,36 @@ async def build_context(
         minutes=cfg.thresholds.velocity_burst_window_minutes
     )
 
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            # account_history for the source account
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        # account_history for the source account
+        await cur.execute(
+            """
                 SELECT rolling_p99_7d, known_counterparties
                 FROM account_history
                 WHERE account = %s
                 """,
-                (event.account_src,),
-            )
-            row = await cur.fetchone()
-            if row is None:
-                rolling_p99: float | None = None
-                known_counterparties: frozenset[str] = frozenset()
-            else:
-                rolling_p99 = float(row[0]) if row[0] is not None else None
-                known_counterparties = frozenset(row[1] or ())
+            (event.account_src,),
+        )
+        row = await cur.fetchone()
+        if row is None:
+            rolling_p99: float | None = None
+            known_counterparties: frozenset[str] = frozenset()
+        else:
+            rolling_p99 = float(row[0]) if row[0] is not None else None
+            known_counterparties = frozenset(row[1] or ())
 
-            # recent outbound Payment count over the velocity window
-            await cur.execute(
-                """
+        # recent outbound Payment count over the velocity window
+        await cur.execute(
+            """
                 SELECT COUNT(*) FROM events
                 WHERE account_src = %s
                   AND tx_type = 'Payment'
                   AND validated_at >= %s
                 """,
-                (event.account_src, velocity_window_start),
-            )
-            count_row = await cur.fetchone()
-            recent_outbound_count = int(count_row[0]) if count_row is not None else 0
+            (event.account_src, velocity_window_start),
+        )
+        count_row = await cur.fetchone()
+        recent_outbound_count = int(count_row[0]) if count_row is not None else 0
 
     return ScoringContext(
         rolling_p99_7d=rolling_p99,
@@ -177,12 +175,11 @@ async def record_event(pool: AsyncConnectionPool, event: EventData) -> None:
     trigger from migration 001 handles overflow.
     """
     now = clock.now()
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            # Single statement: insert-or-update with conditional counterparty append.
-            # EXCLUDED.known_counterparties is either '{}' (no dst) or ARRAY[dst].
-            await cur.execute(
-                """
+    async with pool.connection() as conn, conn.cursor() as cur:
+        # Single statement: insert-or-update with conditional counterparty append.
+        # EXCLUDED.known_counterparties is either '{}' (no dst) or ARRAY[dst].
+        await cur.execute(
+            """
                 INSERT INTO account_history (
                     account, total_seen, last_seen_at, known_counterparties
                 )
@@ -208,8 +205,8 @@ async def record_event(pool: AsyncConnectionPool, event: EventData) -> None:
                             ) || EXCLUDED.known_counterparties
                     END
                 """,
-                (event.account_src, now, event.account_dst, event.account_dst),
-            )
+            (event.account_src, now, event.account_dst, event.account_dst),
+        )
 
 
 async def recompute_p99_if_stale(
@@ -225,15 +222,14 @@ async def recompute_p99_if_stale(
     staleness_cutoff = clock.now() - timedelta(minutes=cfg.p99_recompute_age_minutes)
 
     # Cheap check: if the cached value is fresh, no need to acquire the lock.
-    async with pool.connection() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "SELECT rolling_p99_at FROM account_history WHERE account = %s",
-                (account,),
-            )
-            row = await cur.fetchone()
-            if row is not None and row[0] is not None and row[0] > staleness_cutoff:
-                return False
+    async with pool.connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            "SELECT rolling_p99_at FROM account_history WHERE account = %s",
+            (account,),
+        )
+        row = await cur.fetchone()
+        if row is not None and row[0] is not None and row[0] > staleness_cutoff:
+            return False
 
     # Stale (or missing). Try to take the per-account advisory lock and recompute.
     async with pool.connection() as conn:

@@ -20,7 +20,6 @@ from supersee.ingestor import (
     normalize_payment_message,
 )
 
-
 # ===========================================================================
 # Pure helpers
 # ===========================================================================
@@ -166,9 +165,8 @@ class TestInsertEvent:
             kwargs={"autocommit": True}, open=False,
         )
         await p.open()
-        async with p.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute("TRUNCATE events RESTART IDENTITY CASCADE")
+        async with p.connection() as conn, conn.cursor() as cur:
+            await cur.execute("TRUNCATE events RESTART IDENTITY CASCADE")
         try:
             yield p
         finally:
