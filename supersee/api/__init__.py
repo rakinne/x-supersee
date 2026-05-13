@@ -22,7 +22,7 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from supersee import __version__, db, scheduler
+from supersee import __version__, db, ingestor, pipeline, scheduler, supervisor
 from supersee.config import settings
 from supersee.graph import app as graph_app
 
@@ -43,35 +43,70 @@ def _configure_logging() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # TODO: launch ingestor / scorer under run_with_restart with bounded
-    # concurrency via asyncio.Semaphore(settings.runtime.langgraph_concurrency).
     _configure_logging()
     logger.info("supersee %s starting", __version__)
+
     await db.init_pool()
     await db.apply_migrations()
     pool = db.get_pool()
-
-    # Compile the LangGraph investigation app against the shared pool.
-    # The checkpointer (AsyncPostgresSaver) creates its own tables via
-    # .setup() on first call; idempotent thereafter.
     await graph_app.init_graph(pool)
 
-    # Background scheduler: hourly tick for OFAC refresh + artifact retention.
-    # Wired directly here for now; the per-task restart supervisor (eng-review
-    # hardening) will wrap all four background tasks once the others land.
-    scheduler_task = asyncio.create_task(
-        scheduler.run_scheduler(pool), name="scheduler"
+    # In-process queues. Bounded so backpressure manifests as a log
+    # warning instead of unbounded memory growth.
+    event_queue: asyncio.Queue[int] = asyncio.Queue(maxsize=10_000)
+    graph_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=1_000)
+    graph_sem = asyncio.Semaphore(settings.runtime.langgraph_concurrency)
+
+    # Crash-recovery: re-enqueue work the previous process didn't finish.
+    # Runs BEFORE we start the consumers so the backlog is ready.
+    events_recovered, cases_recovered = await pipeline.recovery_sweep(
+        pool, event_queue, graph_queue
     )
+    if events_recovered or cases_recovered:
+        logger.info(
+            "recovery_sweep done: %d events + %d cases re-enqueued",
+            events_recovered, cases_recovered,
+        )
+
+    # Four background tasks under the restart supervisor (eng-review hardening).
+    tasks = [
+        asyncio.create_task(
+            supervisor.run_with_restart(
+                lambda: ingestor.run_ingestor(pool, event_queue),
+                "ingestor",
+            ),
+            name="ingestor",
+        ),
+        asyncio.create_task(
+            supervisor.run_with_restart(
+                lambda: pipeline.run_scorer_loop(pool, event_queue, graph_queue),
+                "scorer",
+            ),
+            name="scorer",
+        ),
+        asyncio.create_task(
+            supervisor.run_with_restart(
+                lambda: pipeline.run_graph_loop(pool, graph_queue, graph_sem),
+                "graph",
+            ),
+            name="graph",
+        ),
+        asyncio.create_task(
+            supervisor.run_with_restart(
+                lambda: scheduler.run_scheduler(pool),
+                "scheduler",
+            ),
+            name="scheduler",
+        ),
+    ]
 
     try:
         yield
     finally:
-        logger.info("supersee shutting down")
-        scheduler_task.cancel()
-        try:
-            await scheduler_task
-        except asyncio.CancelledError:
-            pass
+        logger.info("supersee shutting down; cancelling background tasks")
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         await graph_app.close_graph()
         await db.close_pool()
 
