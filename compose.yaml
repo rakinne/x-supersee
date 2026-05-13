@@ -1,0 +1,55 @@
+# Supersee single-box stack. See ARCHITECTURE.md for the why-not-AWS framing.
+# Two services: Postgres (state + LangGraph checkpointer) and the app (all four
+# background tasks + FastAPI in a single uvicorn process).
+#
+# To `docker compose build app` you need ./supersee/__init__.py to exist on the
+# host (Dockerfile's pip install -e . requires the package). Until then,
+# `docker compose up postgres` works standalone for schema sketching in psql.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: supersee-postgres
+    environment:
+      POSTGRES_USER: supersee
+      POSTGRES_PASSWORD: supersee_dev
+      POSTGRES_DB: supersee
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supersee -d supersee"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: supersee-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://supersee:supersee_dev@postgres:5432/supersee
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SUPERSEE_MOCK_LLM: ${SUPERSEE_MOCK_LLM:-false}
+      SUPERSEE_XRPL_WS_URL: ${SUPERSEE_XRPL_WS_URL:-wss://xrplcluster.com/}
+    ports:
+      - "8000:8000"
+    # Bind-mount source for hot-reload during development. Comment out for
+    # production builds that rely on the image's frozen copy.
+    volumes:
+      - ./supersee:/app/supersee
+      - ./migrations:/app/migrations
+      - ./fixtures:/app/fixtures
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    name: supersee_postgres_data
