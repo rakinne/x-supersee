@@ -15,6 +15,7 @@ class RuntimeSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="SUPERSEE_RUNTIME_",
         extra="ignore",
+        populate_by_name=True,
     )
 
     # --- Database ---

@@ -21,6 +21,7 @@ from fastapi import FastAPI
 
 from supersee import __version__, db, scheduler
 from supersee.config import settings
+from supersee.graph import app as graph_app
 
 logger = logging.getLogger(__name__)
 
@@ -34,18 +35,22 @@ def _configure_logging() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # TODO: init LangGraph checkpointer, launch ingestor / scorer /
-    # langgraph_app under run_with_restart with bounded concurrency via
-    # asyncio.Semaphore(settings.runtime.langgraph_concurrency).
+    # TODO: launch ingestor / scorer under run_with_restart with bounded
+    # concurrency via asyncio.Semaphore(settings.runtime.langgraph_concurrency).
     _configure_logging()
     logger.info("supersee %s starting", __version__)
     await db.init_pool()
     await db.apply_migrations()
+    pool = db.get_pool()
+
+    # Compile the LangGraph investigation app against the shared pool.
+    # The checkpointer (AsyncPostgresSaver) creates its own tables via
+    # .setup() on first call; idempotent thereafter.
+    await graph_app.init_graph(pool)
 
     # Background scheduler: hourly tick for OFAC refresh + artifact retention.
     # Wired directly here for now; the per-task restart supervisor (eng-review
     # hardening) will wrap all four background tasks once the others land.
-    pool = db.get_pool()
     scheduler_task = asyncio.create_task(
         scheduler.run_scheduler(pool), name="scheduler"
     )
@@ -59,6 +64,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await scheduler_task
         except asyncio.CancelledError:
             pass
+        await graph_app.close_graph()
         await db.close_pool()
 
 

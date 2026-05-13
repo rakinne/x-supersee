@@ -14,6 +14,7 @@ class EnrichmentSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="SUPERSEE_ENRICHMENT_",
         extra="ignore",
+        populate_by_name=True,
     )
 
     # --- OFAC SDN crypto address feed ---
