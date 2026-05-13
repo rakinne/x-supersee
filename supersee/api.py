@@ -19,15 +19,24 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from supersee import __version__, db
+from supersee.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _configure_logging() -> None:
+    logging.basicConfig(
+        level=settings.runtime.log_level.upper(),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # TODO: init LangGraph checkpointer, launch ingestor / scorer /
     # langgraph_app / scheduler under run_with_restart with bounded
-    # concurrency via asyncio.Semaphore(4).
+    # concurrency via asyncio.Semaphore(settings.runtime.langgraph_concurrency).
+    _configure_logging()
     logger.info("supersee %s starting", __version__)
     await db.init_pool()
     await db.apply_migrations()

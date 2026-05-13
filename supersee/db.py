@@ -14,6 +14,8 @@ from pathlib import Path
 
 from psycopg_pool import AsyncConnectionPool
 
+from supersee.config import settings
+
 logger = logging.getLogger(__name__)
 
 # Located at <repo>/migrations/, next to the supersee package. Overridable
@@ -37,38 +39,32 @@ _ADVISORY_LOCK_KEY = 4242
 _pool: AsyncConnectionPool | None = None
 
 
-def _dsn() -> str:
-    dsn = os.environ.get("DATABASE_URL")
-    if not dsn:
-        raise RuntimeError("DATABASE_URL is not set")
-    return dsn
-
-
 async def init_pool(
     dsn: str | None = None,
     *,
-    min_size: int = 1,
-    max_size: int = 10,
+    min_size: int | None = None,
+    max_size: int | None = None,
 ) -> AsyncConnectionPool:
     """Open the module-level pool. Idempotent.
 
     `autocommit=True` matches what `langgraph-checkpoint-postgres` expects
     from connections it borrows. Migration apply flips autocommit off for
-    the duration of each migration's transaction.
+    the duration of each migration's transaction. Sizes default to
+    `settings.runtime.pool_min_size` / `pool_max_size`.
     """
     global _pool
     if _pool is not None:
         return _pool
     pool = AsyncConnectionPool(
-        conninfo=dsn or _dsn(),
-        min_size=min_size,
-        max_size=max_size,
+        conninfo=dsn or settings.runtime.database_url,
+        min_size=min_size if min_size is not None else settings.runtime.pool_min_size,
+        max_size=max_size if max_size is not None else settings.runtime.pool_max_size,
         kwargs={"autocommit": True},
         open=False,
     )
     await pool.open()
     _pool = pool
-    logger.info("postgres pool opened (max=%d)", max_size)
+    logger.info("postgres pool opened (max=%d)", pool.max_size)
     return pool
 
 
