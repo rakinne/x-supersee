@@ -127,7 +127,10 @@ scoring rationale for a specific input.
 
 ## Architecture, where to look
 
-A few specific files communicate the architecture better than prose:
+A rendered Mermaid system diagram lives in
+[`ARCHITECTURE.md`](ARCHITECTURE.md): live pipeline, LangGraph nodes,
+Postgres tables, and the HITL resume edge in one picture. Below are the
+specific source files for the parts the diagram glosses over.
 
 - [`supersee/graph/state.py`](supersee/graph/state.py): the
   `InvestigationState` TypedDict. The contract every graph node reads and
