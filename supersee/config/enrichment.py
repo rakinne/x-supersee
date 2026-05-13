@@ -17,12 +17,16 @@ class EnrichmentSettings(BaseSettings):
     )
 
     # --- OFAC SDN crypto address feed ---
-    # OpenSanctions ships pre-parsed crypto addresses, saving us 1-2 days
-    # of XML wrangling vs parsing Treasury's SDN_ADVANCED.XML directly.
-    # See https://www.opensanctions.org/datasets/sanctions/ — exact filename
-    # may shift; this URL is verified at scheduler startup.
+    # OpenSanctions models crypto wallets as their own `CryptoWallet`
+    # schema entities. The broad `sanctions` collection contains none of
+    # these at the moment; crypto wallets live in narrower sanctions-
+    # adjacent datasets. We default to the FBI Lazarus Group dataset
+    # because it (a) reliably returns CryptoWallet entries and (b) maps
+    # to a real, defensible compliance use case. Operators running this
+    # in production should set SUPERSEE_ENRICHMENT_OPENSANCTIONS_URL to
+    # whatever consolidated feed they trust. See ofac.py module docstring.
     opensanctions_url: str = Field(
-        default="https://data.opensanctions.org/datasets/latest/sanctions/entities.ftm.json",
+        default="https://data.opensanctions.org/datasets/latest/us_fbi_lazarus_crypto/entities.ftm.json",
     )
     # Refresh-on-startup-if-stale: triggers when fetched_at is older than this.
     ofac_refresh_age_hours: int = Field(default=25, gt=0)

@@ -12,13 +12,14 @@ package is scaffolded.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from supersee import __version__, db
+from supersee import __version__, db, scheduler
 from supersee.config import settings
 
 logger = logging.getLogger(__name__)
@@ -34,16 +35,30 @@ def _configure_logging() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # TODO: init LangGraph checkpointer, launch ingestor / scorer /
-    # langgraph_app / scheduler under run_with_restart with bounded
-    # concurrency via asyncio.Semaphore(settings.runtime.langgraph_concurrency).
+    # langgraph_app under run_with_restart with bounded concurrency via
+    # asyncio.Semaphore(settings.runtime.langgraph_concurrency).
     _configure_logging()
     logger.info("supersee %s starting", __version__)
     await db.init_pool()
     await db.apply_migrations()
+
+    # Background scheduler: hourly tick for OFAC refresh + artifact retention.
+    # Wired directly here for now; the per-task restart supervisor (eng-review
+    # hardening) will wrap all four background tasks once the others land.
+    pool = db.get_pool()
+    scheduler_task = asyncio.create_task(
+        scheduler.run_scheduler(pool), name="scheduler"
+    )
+
     try:
         yield
     finally:
         logger.info("supersee shutting down")
+        scheduler_task.cancel()
+        try:
+            await scheduler_task
+        except asyncio.CancelledError:
+            pass
         await db.close_pool()
 
 
