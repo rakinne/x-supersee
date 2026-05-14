@@ -37,6 +37,11 @@ services:
     environment:
       DATABASE_URL: postgresql://supersee:supersee_dev@postgres:5432/supersee
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # LangSmith hosted tracing. Off by default. Set these three in .env to
+      # see every LangGraph node + LLM call at smith.langchain.com.
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-supersee}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SUPERSEE_MOCK_LLM: ${SUPERSEE_MOCK_LLM:-false}
       SUPERSEE_XRPL_WS_URL: ${SUPERSEE_XRPL_WS_URL:-wss://xrplcluster.com/}

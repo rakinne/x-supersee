@@ -86,6 +86,21 @@ in `compose.yaml` before `up`. The canned-narrative generator produces
 plausible compliance narratives by dispatching on the rule hits. Strong
 enough for an end-to-end demo without an LLM call.
 
+**Optional: LangSmith hosted tracing.** Drop three vars in `.env`:
+
+```
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=lsv2_pt_...
+LANGSMITH_PROJECT=supersee
+```
+
+Every LangGraph node transition and every `build_narrative` Anthropic call
+then streams to [smith.langchain.com](https://smith.langchain.com) as an
+inspectable trace tree: prompts, structured outputs, token counts, latencies,
+and the `interrupt()` pause clearly marked. The audit log on `/cases/{id}`
+is our in-app version of the same thing, but LangSmith shows the raw LLM
+I/O that the audit log elides. Off by default; safe to ship without a key.
+
 ## Three demo paths
 
 Pick whichever is easiest to show.
